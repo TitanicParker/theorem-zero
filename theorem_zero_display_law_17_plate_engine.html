@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Theorem Zero — 17 Plate Lawful Display Engine</title>
+<style>
+:root { color-scheme: dark; --bg: #000408; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
+body {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(50, 210, 160, .045), transparent 35rem),
+    linear-gradient(135deg, #000205 0%, #00070a 58%, #020710 100%);
+}
+.stage { width: 100vw; height: 100vh; display: grid; place-items: center; }
+svg {
+  width: min(100vw, calc(100vh * 1.4516));
+  height: min(100vh, calc(100vw / 1.4516));
+  display: block;
+}
+</style>
+</head>
+<body>
+<div class="stage">
+<svg id="theorem-zero" viewBox="0 0 900 620" role="img" aria-label="Theorem Zero 17 plate lawful display engine">
+  <defs>
+    <filter id="fieldGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="0.75" result="blur" />
+      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+    <filter id="activeGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.0" result="blur" />
+      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+    <filter id="lockGlow" x="-55%" y="-55%" width="210%" height="210%">
+      <feGaussianBlur stdDeviation="3.0" result="blur" />
+      <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+    <radialGradient id="vignette" cx="50%" cy="50%" r="72%">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0" />
+      <stop offset="74%" stop-color="#000000" stop-opacity="0" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.50" />
+    </radialGradient>
+  </defs>
+  <rect width="900" height="620" fill="#000408" data-object-type="presentational" data-source-layer="rendering" data-role="ground" />
+  <g id="modelLayer"></g>
+  <g id="provenanceLayer"></g>
+  <g id="timelineLayer"></g>
+  <g id="renderingLayer"></g>
+  <rect width="900" height="620" fill="url(#vignette)" pointer-events="none" data-object-type="presentational" data-source-layer="rendering" data-role="crop-vignette" />
+</svg>
+</div>
+
+<script>
+'use strict';
+
+const SQRT3 = Math.sqrt(3);
+const SCREEN = Object.freeze({ w: 900, h: 620, ox: 450, oy: 310, unit: 88 });
+const OBJ = Object.freeze({ C: 'constructional', T: 'transformational', P: 'presentational' });
+const SRC = Object.freeze({ MODEL: 'model', PROVENANCE: 'provenance', TIMELINE: 'timeline', RENDERING: 'rendering' });
+const COLOR = Object.freeze({
+  ground: '#000408', field: '#4dff8a', field2: '#a0e6ff', inactive: '#b2ffcc',
+  rose: '#ff6f8e', gold: '#ffd36a', circle: '#eaf9ff', sweep: '#c2e6ff', mint: '#84ffd2'
+});
+const ALLOWED_TYPES = new Set(Object.values(OBJ));
+const ALLOWED_SOURCES = new Set(Object.values(SRC));
+const PHASES = Object.freeze({
+  field: [0.00, 0.10],
+  central: [0.10, 0.58],
+  pause: [0.58, 0.66],
+  finale: [0.66, 1.00]
+});
+
+function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+function smooth(v){ v = clamp01(v); return v * v * (3 - 2 * v); }
+function span(t, a, b){ if (b === a) return t >= b ? 1 : 0; return clamp01((t - a) / (b - a)); }
+function key(q,r){ return q + ',' + r; }
+function axial(q,r){ return { x: q + r / 2, y: r * SQRT3 / 2, q, r, id: key(q,r) }; }
+function dist(a,b){ return Math.hypot(a.x - b.x, a.y - b.y); }
+function project(p){ return { x: SCREEN.ox + SCREEN.unit * p.x, y: SCREEN.oy - SCREEN.unit * p.y }; }
+function lerpPoint(a,b,t){ t = clamp01(t); return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; }
+function inViewPoint(p, pad){ const s = project(p); return s.x > -pad && s.x < SCREEN.w + pad && s.y > -pad && s.y < SCREEN.h + pad; }
+function svgEl(name, attrs, parent){ const n = document.createElementNS('http://www.w3.org/2000/svg', name); for(const [k,v] of Object.entries(attrs || {})) n.setAttribute(k, String(v)); parent.appendChild(n); return n; }
+function mod(a,b){ return ((a % b) + b) % b; }
+function uniqueById(list){ const seen = new Set(); const out = []; for(const item of list){ if(!item || seen.has(item.id)) continue; seen.add(item.id); out.push(item); } return out; }
+
+class ModelLayer {
+  constructor(range){
+    this.range = range;
+    this.points = new Map();
+    this.edges = [];
+    this.cells = [];
+    this.named = {};
+    this.unitCircles = [];
+    this.build();
+  }
+  build(){
+    for(let q = -this.range; q <= this.range; q++){
+      for(let r = -this.range; r <= this.range; r++) this.points.set(key(q,r), Object.freeze(axial(q,r)));
+    }
+    for(const p of this.points.values()){
+      for(const [dq,dr] of [[1,0],[0,1],[1,-1]]){
+        const n = this.point(p.q + dq, p.r + dr);
+        if(n) this.edges.push(Object.freeze({ id:'edge:' + p.id + ':' + n.id, a:p, b:n, kind:'unit-edge', law:'triangular-lattice-neighbor' }));
+      }
+      const right = this.point(p.q + 1, p.r);
+      const up = this.point(p.q, p.r + 1);
+      const down = this.point(p.q + 1, p.r - 1);
+      if(right && up) this.cells.push(Object.freeze({ id:'cell-up:' + p.id, origin:p, orientation:'up', pts:[p,right,up], kind:'equilateral-cell', law:'unit-equilateral-cell' }));
+      if(right && down) this.cells.push(Object.freeze({ id:'cell-down:' + p.id, origin:p, orientation:'down', pts:[p,down,right], kind:'equilateral-cell', law:'unit-equilateral-cell' }));
+    }
+    this.name('O', 0, 0);
+    this.name('A', -1, 0);
+    this.name('B', -1, 1);
+    this.name('C', 0, 1);
+    this.name('D', 1, 0);
+    this.name('E', 1, -1);
+    this.name('F', 0, -1);
+    this.circle('circle:O', this.named.O);
+    this.circle('circle:A', this.named.A);
+  }
+  point(q,r){ return this.points.get(key(q,r)) || null; }
+  name(id,q,r){ const p = this.point(q,r); this.named[id] = Object.freeze({ id, q, r, x:p.x, y:p.y, kind:'lawful-point', law:'named-lattice-station' }); return this.named[id]; }
+  circle(id, center){ const c = Object.freeze({ id, center, radius:1, kind:'unit-circle', law:'fixed-unit-radius' }); this.unitCircles.push(c); return c; }
+  ephemeralCircle(id, center){ return Object.freeze({ id, center, radius:1, kind:'unit-circle', law:'fixed-unit-radius' }); }
+  cellAt(q,r,orientation){ return this.cells.find(c => c.origin.q === q && c.origin.r === r && c.orientation === orientation) || null; }
+  ring(center){
+    return uniqueById([
+      this.point(center.q - 1, center.r), this.point(center.q - 1, center.r + 1), this.point(center.q, center.r + 1),
+      this.point(center.q + 1, center.r), this.point(center.q + 1, center.r - 1), this.point(center.q, center.r - 1)
+    ]);
+  }
+  circleCircle(c1,c2){
+    const a = c1.center, b = c2.center, d = dist(a,b);
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, h = Math.sqrt(1 - (d / 2) ** 2);
+    const ux = -(b.y - a.y) / d, uy = (b.x - a.x) / d;
+    const candidates = [{x: mx + h * ux, y: my + h * uy}, {x: mx - h * ux, y: my - h * uy}];
+    return candidates.map((p,i) => {
+      let found = null;
+      for(const lp of this.points.values()) if(Math.abs(lp.x - p.x) < 1e-8 && Math.abs(lp.y - p.y) < 1e-8) found = lp;
+      return Object.freeze({ id:(i===0?'I-upper:':'I-lower:') + c1.center.id + ':' + c2.center.id, x:found.x, y:found.y, q:found.q, r:found.r, kind:'lawful-point', law:'unit-circle-circle-intersection' });
+    });
+  }
+  fieldCenters(step){
+    const out = [];
+    for(const p of this.points.values()){
+      if(!inViewPoint(p, 120)) continue;
+      if(mod(p.q - p.r, step) === 0) out.push(p);
+    }
+    out.sort((a,b) => dist(a, this.named.O) - dist(b, this.named.O));
+    return out;
+  }
+  upCellsInView(){ return this.cells.filter(c => c.orientation === 'up' && c.pts.every(p => inViewPoint(p, 40))).sort((a,b) => dist(a.origin,this.named.O) - dist(b.origin,this.named.O)); }
+  bodiesHexCenters(step){ return this.fieldCenters(step).filter(p => this.ring(p).length === 6); }
+}
+
+class ProvenanceLayer {
+  constructor(){ this.records = []; }
+  record(id, objectType, sourceLayer, note){ this.records.push(Object.freeze({ id, objectType, sourceLayer, note })); }
+  all(){ return this.records.slice(); }
+}
+
+class TimelineLayer {
+  constructor(plates){ this.plates = plates; this.total = plates.reduce((s,p) => s + p.duration, 0); this.start = performance.now(); this.held = null; }
+  sample(now){
+    if(this.held) return this.held;
+    let elapsed = ((now - this.start) / 1000) % this.total;
+    for(let i = 0; i < this.plates.length; i++){
+      const plate = this.plates[i];
+      if(elapsed <= plate.duration) return { plateIndex:i, plate, t:clamp01(elapsed / plate.duration) };
+      elapsed -= plate.duration;
+    }
+    return { plateIndex:this.plates.length - 1, plate:this.plates[this.plates.length - 1], t:1 };
+  }
+  hold(plateIndex,t){ this.held = { plateIndex, plate:this.plates[plateIndex], t:clamp01(t) }; }
+  resume(){ this.held = null; this.start = performance.now(); }
+}
+
+class RenderingLayer {
+  constructor(model){
+    this.model = model;
+    this.svg = document.getElementById('theorem-zero');
+    this.modelLayer = document.getElementById('modelLayer');
+    this.provenanceLayer = document.getElementById('provenanceLayer');
+    this.timelineLayer = document.getElementById('timelineLayer');
+    this.renderingLayer = document.getElementById('renderingLayer');
+  }
+  clear(){ this.modelLayer.textContent = ''; this.provenanceLayer.textContent = ''; this.timelineLayer.textContent = ''; this.renderingLayer.textContent = ''; }
+  layer(sourceLayer){ if(sourceLayer === SRC.MODEL) return this.modelLayer; if(sourceLayer === SRC.PROVENANCE) return this.provenanceLayer; if(sourceLayer === SRC.TIMELINE) return this.timelineLayer; return this.renderingLayer; }
+  emit(name, attrs, meta){
+    if(!meta || !ALLOWED_TYPES.has(meta.objectType)) throw new Error('Rendered object missing lawful objectType.');
+    if(!ALLOWED_SOURCES.has(meta.sourceLayer)) throw new Error('Rendered object missing sourceLayer.');
+    return svgEl(name, Object.assign({}, attrs, {
+      'data-object-type': meta.objectType,
+      'data-source-layer': meta.sourceLayer,
+      'data-role': meta.role || 'unspecified',
+      'data-law': meta.law || 'display-law',
+      'data-proof-condition': meta.proofCondition || 'unspecified-proof',
+      'data-instance-kind': meta.instanceKind || 'unspecified',
+      'data-plate-id': meta.plateId || 'unknown-plate'
+    }), this.layer(meta.sourceLayer));
+  }
+  field(alpha){
+    alpha = clamp01(alpha);
+    const g = this.emit('g', { opacity:alpha, filter:'url(#fieldGlow)' }, { objectType:OBJ.C, sourceLayer:SRC.MODEL, role:'bedrock-field', law:'triangular-lattice', proofCondition:'substrate-law', instanceKind:'shared', plateId:'shared' });
+    for(const e of this.model.edges){
+      const a = project(e.a), b = project(e.b);
+      if(Math.max(a.x,b.x) < -5 || Math.min(a.x,b.x) > SCREEN.w + 5 || Math.max(a.y,b.y) < -5 || Math.min(a.y,b.y) > SCREEN.h + 5) continue;
+      svgEl('line', { x1:a.x, y1:a.y, x2:b.x, y2:b.y, stroke:COLOR.field, 'stroke-opacity':'0.30', 'stroke-width':'0.95', 'stroke-linecap':'round', 'data-object-type':OBJ.C, 'data-source-layer':SRC.MODEL, 'data-role':'unit-edge', 'data-law':e.law, 'data-proof-condition':'substrate-law', 'data-instance-kind':'shared', 'data-plate-id':'shared' }, g);
+    }
+    const dots = this.emit('g', { opacity:alpha * 0.58 }, { objectType:OBJ.C, sourceLayer:SRC.MODEL, role:'lawful-stations', law:'triangular-lattice-points', proofCondition:'substrate-law', instanceKind:'shared', plateId:'shared' });
+    for(const p of this.model.points.values()){
+      const s = project(p);
+      if(s.x < -5 || s.x > SCREEN.w + 5 || s.y < -5 || s.y > SCREEN.h + 5) continue;
+      svgEl('circle', { cx:s.x, cy:s.y, r:'1.35', fill:COLOR.inactive, 'fill-opacity':'0.58', 'data-object-type':OBJ.C, 'data-source-layer':SRC.MODEL, 'data-role':'inactive-station', 'data-law':'lawful-lattice-point', 'data-proof-condition':'substrate-law', 'data-instance-kind':'shared', 'data-plate-id':'shared' }, dots);
+    }
+  }
+  dimmer(opacity){ if(opacity > 0) this.emit('rect', { width:SCREEN.w, height:SCREEN.h, fill:'#000408', opacity:clamp01(opacity), 'pointer-events':'none' }, { objectType:OBJ.P, sourceLayer:SRC.RENDERING, role:'field-dim', law:'presentation-only', proofCondition:'presentation-only', instanceKind:'shared', plateId:'shared' }); }
+  point(p, color, r, opacity, meta){ const s = project(p); this.emit('circle', { cx:s.x, cy:s.y, r, fill:color, 'fill-opacity':opacity, filter:'url(#activeGlow)' }, meta); }
+  edge(a,b,progress,color,width,opacity,dash,meta){ const end = lerpPoint(a,b,progress); const A = project(a), B = project(end); this.emit('line', { x1:A.x, y1:A.y, x2:B.x, y2:B.y, stroke:color, 'stroke-opacity':opacity, 'stroke-width':width, 'stroke-linecap':'round', 'stroke-dasharray':dash || 'none', filter:'url(#lockGlow)' }, meta); }
+  segment(a,b,color,width,opacity,dash,meta){ const A = project(a), B = project(b); this.emit('line', { x1:A.x, y1:A.y, x2:B.x, y2:B.y, stroke:color, 'stroke-opacity':opacity, 'stroke-width':width, 'stroke-linecap':'round', 'stroke-dasharray':dash || 'none', filter:'url(#lockGlow)' }, meta); }
+  circle(c,progress,color,width,opacity,dash,meta){
+    const p = project(c.center);
+    const circumference = 2 * Math.PI * SCREEN.unit;
+    this.emit('circle', { cx:p.x, cy:p.y, r:SCREEN.unit * (c.radius || 1), fill:'none', stroke:color, 'stroke-opacity':opacity, 'stroke-width':width, 'stroke-dasharray':dash || (circumference + ' ' + circumference), 'stroke-dashoffset':dash ? '0' : String(circumference * (1 - clamp01(progress))), 'stroke-linecap':'round', transform:'rotate(-90 ' + p.x + ' ' + p.y + ')', filter:'url(#activeGlow)' }, meta);
+  }
+  polygon(pts,fill,fillOpacity,stroke,strokeOpacity,width,meta){ this.emit('polygon', { points:pts.map(project).map(p => p.x + ',' + p.y).join(' '), fill, 'fill-opacity':fillOpacity, stroke, 'stroke-opacity':strokeOpacity, 'stroke-width':width, filter:'url(#activeGlow)' }, meta); }
+  arc(center, radiusUnits, a1, a2, color, width, opacity, meta){
+    const p = project(center), R = SCREEN.unit * radiusUnits;
+    const s = { x:p.x + R * Math.cos(a1), y:p.y - R * Math.sin(a1) };
+    const e = { x:p.x + R * Math.cos(a2), y:p.y - R * Math.sin(a2) };
+    const large = Math.abs(a2 - a1) > Math.PI ? 1 : 0;
+    this.emit('path', { d:'M ' + s.x + ' ' + s.y + ' A ' + R + ' ' + R + ' 0 ' + large + ' 0 ' + e.x + ' ' + e.y, fill:'none', stroke:color, 'stroke-opacity':opacity, 'stroke-width':width, 'stroke-linecap':'round', filter:'url(#lockGlow)' }, meta);
+  }
+  exportCurrent(filename){
+    const clone = this.svg.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const data = '<!DOCTYPE svg>\n' + new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([data], { type:'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename || 'theorem_zero_frame.svg'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    return data;
+  }
+}
+
+const model = new ModelLayer(9);
+const provenance = new ProvenanceLayer();
+const render = new RenderingLayer(model);
+const circleO = model.unitCircles.find(c => c.id === 'circle:O');
+const circleA = model.unitCircles.find(c => c.id === 'circle:A');
+const intersectionsOA = model.circleCircle(circleO, circleA);
+const O = model.named.O, A = model.named.A, B = model.named.B, C = model.named.C, D = model.named.D, E = model.named.E, F = model.named.F;
+
+provenance.record('substrate', OBJ.C, SRC.MODEL, 'fixed triangular lattice and lawful point-field');
+provenance.record('two-phase-rule', OBJ.T, SRC.TIMELINE, 'central construction then lawful field distribution finale');
+provenance.record('final-frame-export', OBJ.P, SRC.RENDERING, 'deterministic final-frame export per plate');
+
+function makeMeta(plate, objectType, sourceLayer, role, law, instanceKind){
+  return { objectType, sourceLayer, role, law, proofCondition: plate.proofCondition, instanceKind, plateId: plate.id };
+}
+
+function phaseT(t){
+  return Object.freeze({
+    field: smooth(span(t, PHASES.field[0], PHASES.field[1])),
+    central: smooth(span(t, PHASES.central[0], PHASES.central[1])),
+    pause: smooth(span(t, PHASES.pause[0], PHASES.pause[1])),
+    finale: smooth(span(t, PHASES.finale[0], PHASES.finale[1]))
+  });
+}
+
+function distributeAcrossField(centers, origin, spread, fn){
+  for(let i = 0; i < centers.length; i++){
+    const c = centers[i];
+    const d = Math.min(8.8, dist(c, origin));
+    const local = smooth(span(spread, d / 8.8, d / 8.8 + 0.22));
+    if(local > 0) fn(c, local, 0.20 + 0.60 * local, i);
+  }
+}
+
+function distributeCells(cells, origin, spread, fn){
+  for(let i = 0; i < cells.length; i++){
+    const cell = cells[i];
+    const d = Math.min(8.5, dist(cell.origin, origin));
+    const local = smooth(span(spread, d / 8.5, d / 8.5 + 0.21));
+    if(local > 0) fn(cell, local, 0.18 + 0.62 * local, i);
+  }
+}
+
+const unitCenters = model.fieldCenters(3).filter(p => p.id !== O.id && model.point(p.q + 1, p.r));
+const equilateralCells = model.upCellsInView().filter(c => !(c.origin.q === -1 && c.origin.r === 0));
+const hexCenters = model.bodiesHexCenters(4).filter(p => p.id !== O.id);
+const coordinateCenters = model.fieldCenters(4).filter(p => model.point(p.q + 2, p.r + 1));
+const rightTriangleOrigins = model.fieldCenters(3).filter(p => model.point(p.q + 2, p.r) && model.point(p.q + 1, p.r + 1));
+const bodyCenters = model.bodiesHexCenters(5).filter(p => p.id !== O.id);
+
+function drawUnitCircleInstance(plate, center, progress, intensity, canonical){
+  const endpoint = model.point(center.q + 1, center.r);
+  if(!endpoint) return;
+  const circle = model.ephemeralCircle('unit-circle:' + center.id, center);
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  render.point(center, canonical ? COLOR.rose : COLOR.gold, canonical ? 5.4 : 2.8, intensity, makeMeta(plate, OBJ.C, src, 'unit-center', 'lawful-lattice-station', canonical ? 'central' : 'distributed'));
+  render.edge(center, endpoint, progress, canonical ? COLOR.gold : COLOR.circle, canonical ? 2.7 : 1.25, 0.76 * intensity, progress < 1 ? '7 8' : 'none', makeMeta(plate, progress < 1 ? OBJ.T : OBJ.C, progress < 1 ? SRC.TIMELINE : src, 'unit-radius', 'fixed-unit-radius', canonical ? 'central' : 'distributed'));
+  if(progress > 0.55) render.circle(circle, smooth(span(progress, 0.55, 1)), COLOR.circle, canonical ? 1.95 : 0.75, canonical ? 0.84 * intensity : 0.24 * intensity, canonical ? null : '6 18', makeMeta(plate, progress < 1 ? OBJ.T : OBJ.C, progress < 1 ? SRC.TIMELINE : src, 'unit-circle', 'unit-circle-centered-at-lawful-point', canonical ? 'central' : 'distributed'));
+  render.point(endpoint, canonical ? COLOR.gold : COLOR.inactive, canonical ? 4.7 : 2.0, 0.82 * intensity, makeMeta(plate, OBJ.C, src, 'unit-boundary-point', 'adjacent-lawful-station', canonical ? 'central' : 'distributed'));
+}
+
+function drawEquilateralInstance(plate, origin, progress, intensity, canonical){
+  const a = origin, b = model.point(origin.q + 1, origin.r), c = model.point(origin.q, origin.r + 1);
+  if(!a || !b || !c) return;
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  if(progress > 0.58) render.polygon([a,b,c], COLOR.mint, (canonical ? 0.11 : 0.040) * intensity * smooth(span(progress, 0.58, 1)), COLOR.mint, (canonical ? 0.55 : 0.23) * intensity, canonical ? 1.75 : 0.85, makeMeta(plate, OBJ.C, src, 'equilateral-cell', 'equilateral-cell-from-equal-radius-intersection', canonical ? 'central' : 'distributed'));
+  render.edge(a,b,span(progress,0.00,0.42), COLOR.gold, canonical ? 2.7 : 1.1, 0.82 * intensity, progress < 0.42 ? '7 8' : 'none', makeMeta(plate, progress < 0.42 ? OBJ.T : OBJ.C, progress < 0.42 ? SRC.TIMELINE : src, 'cell-edge-1', 'unit-edge', canonical ? 'central' : 'distributed'));
+  render.edge(b,c,span(progress,0.24,0.66), COLOR.gold, canonical ? 2.7 : 1.1, 0.78 * intensity, progress < 0.66 ? '7 8' : 'none', makeMeta(plate, progress < 0.66 ? OBJ.T : OBJ.C, progress < 0.66 ? SRC.TIMELINE : src, 'cell-edge-2', 'unit-edge', canonical ? 'central' : 'distributed'));
+  render.edge(c,a,span(progress,0.48,0.90), COLOR.gold, canonical ? 2.7 : 1.1, 0.78 * intensity, progress < 0.90 ? '7 8' : 'none', makeMeta(plate, progress < 0.90 ? OBJ.T : OBJ.C, progress < 0.90 ? SRC.TIMELINE : src, 'cell-edge-3', 'unit-edge', canonical ? 'central' : 'distributed'));
+  if(progress > 0.10) render.point(a, canonical ? COLOR.rose : COLOR.inactive, canonical ? 4.6 : 1.9, intensity, makeMeta(plate, OBJ.C, src, 'cell-station-a', 'lawful-lattice-station', canonical ? 'central' : 'distributed'));
+  if(progress > 0.34) render.point(b, canonical ? COLOR.rose : COLOR.inactive, canonical ? 4.2 : 1.9, 0.88 * intensity, makeMeta(plate, OBJ.C, src, 'cell-station-b', 'lawful-lattice-station', canonical ? 'central' : 'distributed'));
+  if(progress > 0.58) render.point(c, COLOR.gold, canonical ? 4.8 : 2.0, 0.92 * intensity, makeMeta(plate, OBJ.C, src, 'cell-station-c', 'lawful-circle-intersection', canonical ? 'central' : 'distributed'));
+}
+
+function drawHexClosureInstance(plate, center, progress, intensity, canonical){
+  const ring = model.ring(center);
+  if(ring.length !== 6) return;
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  render.point(center, canonical ? COLOR.rose : COLOR.gold, canonical ? 4.8 : 2.5, intensity, makeMeta(plate, OBJ.C, src, 'closure-center', 'lawful-lattice-station', canonical ? 'central' : 'distributed'));
+  for(let i = 0; i < ring.length; i++){
+    const p = ring[i], nxt = ring[(i + 1) % ring.length];
+    const on = smooth(span(progress, i / 7, (i + 1.3) / 7));
+    if(on > 0){
+      render.point(p, i === 0 && canonical ? COLOR.gold : COLOR.inactive, canonical ? 4.0 : 2.0, 0.90 * intensity * on, makeMeta(plate, OBJ.C, src, 'closure-boundary-station', 'unit-step-on-circle', canonical ? 'central' : 'distributed'));
+      render.edge(center, p, Math.min(1, on * 1.25), COLOR.circle, canonical ? 1.6 : 0.7, 0.28 * intensity, '6 12', makeMeta(plate, OBJ.T, SRC.TIMELINE, 'closure-radius-read', 'fixed-unit-radius', canonical ? 'central' : 'distributed'));
+      render.edge(p, nxt, Math.min(1, on * 1.15), COLOR.gold, canonical ? 2.0 : 0.85, 0.72 * intensity, on < 1 ? '7 8' : 'none', makeMeta(plate, on < 1 ? OBJ.T : OBJ.C, on < 1 ? SRC.TIMELINE : src, 'closure-chord', 'unit-chord-on-base-circle', canonical ? 'central' : 'distributed'));
+    }
+  }
+  if(progress > 0.78) render.polygon(ring, 'rgba(132,255,210,' + (canonical ? '0.08' : '0.03') + ')', canonical ? 0.08 * intensity : 0.03 * intensity, COLOR.circle, 0.30 * intensity, canonical ? 1.2 : 0.6, makeMeta(plate, OBJ.C, src, 'closure-hexagon-envelope', 'sixfold-closure', canonical ? 'central' : 'distributed'));
+}
+
+function drawCoordinateInstance(plate, origin, aSteps, bSteps, progress, intensity, canonical){
+  const p1 = model.point(origin.q + aSteps, origin.r);
+  const p2 = model.point(origin.q + aSteps, origin.r + bSteps);
+  if(!p1 || !p2) return;
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  const basisU = model.point(origin.q + 1, origin.r);
+  const basisV = model.point(origin.q, origin.r + 1);
+  render.point(origin, canonical ? COLOR.rose : COLOR.inactive, canonical ? 4.6 : 1.9, intensity, makeMeta(plate, OBJ.C, src, 'coordinate-origin', 'lawful-lattice-station', canonical ? 'central' : 'distributed'));
+  render.edge(origin, basisU, Math.min(1, progress * 1.2), COLOR.gold, canonical ? 2.0 : 0.85, 0.70 * intensity, progress < 0.18 ? '7 8' : 'none', makeMeta(plate, progress < 0.18 ? OBJ.T : OBJ.C, progress < 0.18 ? SRC.TIMELINE : src, 'basis-u', 'triangular-basis-u', canonical ? 'central' : 'distributed'));
+  render.edge(origin, basisV, Math.min(1, Math.max(0, (progress - 0.08) * 1.4)), COLOR.circle, canonical ? 2.0 : 0.85, 0.65 * intensity, progress < 0.26 ? '7 8' : 'none', makeMeta(plate, progress < 0.26 ? OBJ.T : OBJ.C, progress < 0.26 ? SRC.TIMELINE : src, 'basis-v', 'triangular-basis-v', canonical ? 'central' : 'distributed'));
+  if(progress > 0.18) render.edge(origin, p1, span(progress,0.18,0.55), COLOR.gold, canonical ? 2.5 : 1.0, 0.76 * intensity, '5 7', makeMeta(plate, OBJ.T, SRC.TIMELINE, 'coordinate-path-u', 'lawful-step-history', canonical ? 'central' : 'distributed'));
+  if(progress > 0.42) render.edge(p1, p2, span(progress,0.42,0.76), COLOR.circle, canonical ? 2.5 : 1.0, 0.76 * intensity, '5 7', makeMeta(plate, OBJ.T, SRC.TIMELINE, 'coordinate-path-v', 'lawful-step-history', canonical ? 'central' : 'distributed'));
+  if(progress > 0.72) render.edge(origin, p2, span(progress,0.72,1.0), COLOR.rose, canonical ? 2.8 : 1.1, 0.84 * intensity, progress < 1 ? '7 8' : 'none', makeMeta(plate, progress < 1 ? OBJ.T : OBJ.C, progress < 1 ? SRC.TIMELINE : src, 'coordinate-resultant', 'triangular-coordinate-resultant', canonical ? 'central' : 'distributed'));
+  if(progress > 0.76) render.point(p2, COLOR.gold, canonical ? 4.7 : 2.0, 0.90 * intensity, makeMeta(plate, OBJ.C, src, 'coordinate-target', 'lawful-step-target', canonical ? 'central' : 'distributed'));
+}
+
+function drawDistanceClassInstance(plate, origin, progress, intensity, canonical){
+  const p1 = model.point(origin.q + 1, origin.r);
+  const p2 = model.point(origin.q + 1, origin.r + 1);
+  const p3 = model.point(origin.q + 2, origin.r);
+  if(!p1 || !p2 || !p3) return;
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  render.point(origin, canonical ? COLOR.rose : COLOR.inactive, canonical ? 4.4 : 1.8, intensity, makeMeta(plate, OBJ.C, src, 'distance-origin', 'lawful-lattice-station', canonical ? 'central' : 'distributed'));
+  render.edge(origin, p1, span(progress,0.05,0.30), COLOR.gold, canonical ? 2.8 : 1.0, 0.82 * intensity, span(progress,0.05,0.30) < 1 ? '7 8' : 'none', makeMeta(plate, span(progress,0.05,0.30) < 1 ? OBJ.T : OBJ.C, span(progress,0.05,0.30) < 1 ? SRC.TIMELINE : src, 'distance-class-1', 'distance-class-1', canonical ? 'central' : 'distributed'));
+  render.edge(origin, p2, span(progress,0.30,0.60), COLOR.circle, canonical ? 2.6 : 1.0, 0.74 * intensity, span(progress,0.30,0.60) < 1 ? '7 8' : 'none', makeMeta(plate, span(progress,0.30,0.60) < 1 ? OBJ.T : OBJ.C, span(progress,0.30,0.60) < 1 ? SRC.TIMELINE : src, 'distance-class-sqrt3', 'distance-class-sqrt3', canonical ? 'central' : 'distributed'));
+  render.edge(origin, p3, span(progress,0.60,1.0), COLOR.rose, canonical ? 2.6 : 1.0, 0.74 * intensity, span(progress,0.60,1.0) < 1 ? '7 8' : 'none', makeMeta(plate, span(progress,0.60,1.0) < 1 ? OBJ.T : OBJ.C, span(progress,0.60,1.0) < 1 ? SRC.TIMELINE : src, 'distance-class-2', 'distance-class-2', canonical ? 'central' : 'distributed'));
+  if(progress > 0.2) render.point(p1, COLOR.gold, canonical ? 4.0 : 1.8, 0.85 * intensity, makeMeta(plate, OBJ.C, src, 'distance-endpoint-1', 'distance-class-1', canonical ? 'central' : 'distributed'));
+  if(progress > 0.5) render.point(p2, COLOR.circle, canonical ? 4.0 : 1.8, 0.85 * intensity, makeMeta(plate, OBJ.C, src, 'distance-endpoint-sqrt3', 'distance-class-sqrt3', canonical ? 'central' : 'distributed'));
+  if(progress > 0.8) render.point(p3, COLOR.rose, canonical ? 4.0 : 1.8, 0.85 * intensity, makeMeta(plate, OBJ.C, src, 'distance-endpoint-2', 'distance-class-2', canonical ? 'central' : 'distributed'));
+}
+
+function drawTriangleCatalogueInstance(plate, center, progress, intensity, canonical){
+  const ring = model.ring(center);
+  if(ring.length !== 6) return;
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  render.circle(model.ephemeralCircle('catalogue:' + center.id, center), 1, COLOR.circle, canonical ? 1.2 : 0.55, 0.42 * intensity, null, makeMeta(plate, OBJ.C, src, 'catalogue-circle', 'base-unit-circle', canonical ? 'central' : 'distributed'));
+  for(const p of ring) render.point(p, COLOR.inactive, canonical ? 3.4 : 1.8, 0.70 * intensity, makeMeta(plate, OBJ.C, src, 'catalogue-boundary-station', 'boundary-station', canonical ? 'central' : 'distributed'));
+  const tris = [[0,1,3],[0,2,4],[0,1,4],[1,2,5],[0,3,5]];
+  const count = Math.max(1, Math.floor(progress * tris.length));
+  for(let i = 0; i < count; i++){
+    const ids = tris[i], pts = [ring[ids[0]], ring[ids[1]], ring[ids[2]]];
+    render.polygon(pts, 'rgba(255,211,106,' + (canonical ? '0.05' : '0.03') + ')', (canonical ? 0.05 : 0.03) * intensity, COLOR.gold, 0.42 * intensity, canonical ? 1.0 : 0.5, makeMeta(plate, OBJ.C, src, 'boundary-triangle', 'boundary-triangle-selection', canonical ? 'central' : 'distributed'));
+  }
+}
+
+function drawTriangleFamilyInstance(plate, center, progress, intensity, canonical){
+  const ring = model.ring(center);
+  if(ring.length !== 6) return;
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  const families = [
+    { pts:[ring[0], ring[1], ring[3]], color:COLOR.rose, role:'diameter-family' },
+    { pts:[ring[0], ring[2], ring[4]], color:COLOR.mint, role:'alternating-family' },
+    { pts:[ring[0], ring[1], ring[2]], color:COLOR.gold, role:'consecutive-family' }
+  ];
+  for(let i = 0; i < families.length; i++){
+    const fam = families[i];
+    const on = smooth(span(progress, i / 3, (i + 1) / 3));
+    if(on > 0) render.polygon(fam.pts, fam.color, 0.08 * intensity * on, fam.color, 0.65 * intensity, canonical ? 1.6 : 0.8, makeMeta(plate, OBJ.C, src, fam.role, 'boundary-triangle-family', canonical ? 'central' : 'distributed'));
+  }
+}
+
+function drawRightTriangleInstance(plate, origin, progress, intensity, canonical){
+  const a = origin;
+  const d = model.point(origin.q + 2, origin.r);
+  const b = model.point(origin.q + 1, origin.r + 1);
+  if(!a || !b || !d) return;
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  render.edge(a,b,span(progress,0.00,0.32), COLOR.gold, canonical ? 2.7 : 1.0, 0.82 * intensity, span(progress,0.00,0.32) < 1 ? '7 8' : 'none', makeMeta(plate, span(progress,0.00,0.32) < 1 ? OBJ.T : OBJ.C, span(progress,0.00,0.32) < 1 ? SRC.TIMELINE : src, 'side-1', '30-60-90-unit-side', canonical ? 'central' : 'distributed'));
+  render.edge(b,d,span(progress,0.32,0.70), COLOR.circle, canonical ? 2.7 : 1.0, 0.82 * intensity, span(progress,0.32,0.70) < 1 ? '7 8' : 'none', makeMeta(plate, span(progress,0.32,0.70) < 1 ? OBJ.T : OBJ.C, span(progress,0.32,0.70) < 1 ? SRC.TIMELINE : src, 'side-sqrt3', '30-60-90-sqrt3-side', canonical ? 'central' : 'distributed'));
+  render.edge(a,d,span(progress,0.70,1.0), COLOR.rose, canonical ? 2.9 : 1.1, 0.84 * intensity, span(progress,0.70,1.0) < 1 ? '7 8' : 'none', makeMeta(plate, span(progress,0.70,1.0) < 1 ? OBJ.T : OBJ.C, span(progress,0.70,1.0) < 1 ? SRC.TIMELINE : src, 'side-2', '30-60-90-diameter', canonical ? 'central' : 'distributed'));
+  if(progress > 0.70) render.arc(b, 0.18, Math.PI, 2 * Math.PI / 3, COLOR.rose, canonical ? 2.0 : 0.9, 0.92 * intensity, makeMeta(plate, OBJ.C, src, 'right-angle-mark', 'right-angle-from-diameter', canonical ? 'central' : 'distributed'));
+  if(progress > 0.84) render.polygon([a,b,d], 'rgba(255,211,106,' + (canonical ? '0.08' : '0.03') + ')', (canonical ? 0.08 : 0.03) * intensity, COLOR.gold, 0.32 * intensity, canonical ? 1.1 : 0.55, makeMeta(plate, OBJ.C, src, 'right-triangle-body', '30-60-90-identity', canonical ? 'central' : 'distributed'));
+  [a,b,d].forEach((p,i)=>{ if(progress > i * 0.22) render.point(p, i===1 ? COLOR.gold : (i===2 ? COLOR.rose : COLOR.inactive), canonical ? 4.0 : 1.9, 0.86 * intensity, makeMeta(plate, OBJ.C, src, 'right-triangle-station', '30-60-90-station', canonical ? 'central' : 'distributed')); });
+}
+
+function drawScaledSimilarityInstance(plate, origin, progress, intensity, canonical){
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  const scales = [1, 1.5, 2.0];
+  for(let i = 0; i < scales.length; i++){
+    const on = smooth(span(progress, i / 3, (i + 1) / 3));
+    if(on <= 0) continue;
+    const s = scales[i];
+    const a = origin;
+    const b = { x: origin.x + s, y: origin.y, q: origin.q + s, r: origin.r, id:'scaled-b' + i };
+    const c = { x: origin.x + s / 2, y: origin.y + s * SQRT3 / 2, q: origin.q + s / 2, r: origin.r + s, id:'scaled-c' + i };
+    render.polygon([a,b,c], 'rgba(255,211,106,' + (canonical ? '0.04' : '0.02') + ')', (canonical ? 0.04 : 0.02) * intensity, i === 0 ? COLOR.gold : (i === 1 ? COLOR.circle : COLOR.mint), 0.65 * intensity, canonical ? 1.7 : 0.8, makeMeta(plate, OBJ.C, src, 'similar-triangle', 'similarity-same-angle-pattern', canonical ? 'central' : 'distributed'));
+  }
+}
+
+function drawTrigRatioInstance(plate, origin, progress, intensity, canonical){
+  drawRightTriangleInstance(plate, origin, Math.min(1, progress * 0.9 + 0.1), intensity, canonical);
+  const a = origin;
+  const d = model.point(origin.q + 2, origin.r);
+  const b = model.point(origin.q + 1, origin.r + 1);
+  if(progress > 0.25) render.edge(b, { x:b.x, y:a.y }, span(progress,0.25,0.55), COLOR.rose, canonical ? 2.0 : 0.8, 0.72 * intensity, '6 8', makeMeta(plate, OBJ.T, SRC.TIMELINE, 'opposite-read', 'stable-ratio-side-read', canonical ? 'central' : 'distributed'));
+  if(progress > 0.50) render.edge(a, { x:b.x, y:a.y }, span(progress,0.50,0.80), COLOR.circle, canonical ? 2.0 : 0.8, 0.72 * intensity, '6 8', makeMeta(plate, OBJ.T, SRC.TIMELINE, 'adjacent-read', 'stable-ratio-side-read', canonical ? 'central' : 'distributed'));
+  if(progress > 0.76) render.edge(a, b, 1, COLOR.gold, canonical ? 3.0 : 1.1, 0.84 * intensity, 'none', makeMeta(plate, OBJ.C, canonical ? SRC.PROVENANCE : SRC.TIMELINE, 'hypotenuse-read', 'stable-ratio-side-read', canonical ? 'central' : 'distributed'));
+}
+
+function drawAreaCellInstance(plate, cell, progress, intensity, canonical){
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  if(progress > 0.10) render.polygon(cell.pts, COLOR.mint, 0.14 * intensity * progress, COLOR.mint, 0.80 * intensity, canonical ? 2.0 : 0.9, makeMeta(plate, OBJ.C, src, 'area-cell', 'native-equilateral-area-unit', canonical ? 'central' : 'distributed'));
+  cell.pts.forEach((p,i)=>{ if(progress > i * 0.18) render.point(p, i===0 && canonical ? COLOR.rose : COLOR.inactive, canonical ? 4.0 : 1.8, 0.78 * intensity, makeMeta(plate, OBJ.C, src, 'area-cell-station', 'cell-station', canonical ? 'central' : 'distributed')); });
+}
+
+function drawAreaCompressionInstance(plate, center, progress, intensity, canonical){
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  const c1 = model.cellAt(center.q, center.r, 'up') || model.upCellsInView()[0];
+  const c2 = model.cellAt(center.q + 1, center.r - 1, 'up') || model.upCellsInView()[1];
+  if(!c1 || !c2) return;
+  if(progress > 0.05) render.polygon(c1.pts, COLOR.mint, 0.11 * intensity, COLOR.mint, 0.74 * intensity, canonical ? 1.8 : 0.8, makeMeta(plate, OBJ.C, src, 'counted-cell-1', 'cell-counting', canonical ? 'central' : 'distributed'));
+  if(progress > 0.35) render.polygon(c2.pts, COLOR.mint, 0.11 * intensity, COLOR.mint, 0.74 * intensity, canonical ? 1.8 : 0.8, makeMeta(plate, OBJ.C, src, 'counted-cell-2', 'cell-counting', canonical ? 'central' : 'distributed'));
+  if(progress > 0.65){
+    const ring = model.ring(center);
+    if(ring.length === 6) render.polygon(ring, 'rgba(132,255,210,' + (canonical ? '0.06' : '0.03') + ')', (canonical ? 0.06 : 0.03) * intensity, COLOR.gold, 0.54 * intensity, canonical ? 1.5 : 0.7, makeMeta(plate, OBJ.C, src, 'compressed-area-body', 'formula-as-area-compression', canonical ? 'central' : 'distributed'));
+  }
+}
+
+function drawTransformationInvariantInstance(plate, center, progress, intensity, canonical){
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  const base = [center, model.point(center.q + 1, center.r), model.point(center.q, center.r + 1)];
+  if(base.some(v => !v)) return;
+  render.polygon(base, 'rgba(255,211,106,' + (canonical ? '0.06' : '0.03') + ')', (canonical ? 0.06 : 0.03) * intensity, COLOR.gold, 0.72 * intensity, canonical ? 1.7 : 0.8, makeMeta(plate, OBJ.C, src, 'base-figure', 'lawful-figure', canonical ? 'central' : 'distributed'));
+  if(progress > 0.24){
+    const translated = [model.point(center.q + 2, center.r - 1), model.point(center.q + 3, center.r - 1), model.point(center.q + 2, center.r)];
+    if(translated.every(Boolean)) render.polygon(translated, 'rgba(122,190,255,0.02)', 0.02 * intensity, COLOR.circle, 0.56 * intensity, canonical ? 1.4 : 0.7, makeMeta(plate, OBJ.T, SRC.TIMELINE, 'translated-figure', 'translation-preserves-shape', canonical ? 'central' : 'distributed'));
+  }
+  if(progress > 0.56){
+    const reflected = [center, model.point(center.q - 1, center.r + 1), model.point(center.q, center.r + 1)];
+    if(reflected.every(Boolean)) render.polygon(reflected, 'rgba(255,111,142,0.02)', 0.02 * intensity, COLOR.rose, 0.56 * intensity, canonical ? 1.4 : 0.7, makeMeta(plate, OBJ.T, SRC.TIMELINE, 'reflected-figure', 'reflection-preserves-distance-classes', canonical ? 'central' : 'distributed'));
+  }
+  if(progress > 0.80) render.point(center, COLOR.gold, canonical ? 4.4 : 2.0, 0.92 * intensity, makeMeta(plate, OBJ.C, src, 'invariant-lock', 'preserved-relation-lock', canonical ? 'central' : 'distributed'));
+}
+
+function drawDecompositionInstance(plate, center, progress, intensity, canonical){
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  const ring = model.ring(center);
+  if(ring.length !== 6) return;
+  if(progress > 0.05) render.polygon(ring, 'rgba(132,255,210,' + (canonical ? '0.05' : '0.025') + ')', (canonical ? 0.05 : 0.025) * intensity, COLOR.mint, 0.52 * intensity, canonical ? 1.6 : 0.8, makeMeta(plate, OBJ.C, src, 'body-before-decomposition', 'lawful-body', canonical ? 'central' : 'distributed'));
+  if(progress > 0.32){
+    for(let i = 0; i < 6; i++){
+      const tri = [center, ring[i], ring[(i + 1) % 6]];
+      render.polygon(tri, 'rgba(132,255,210,' + (canonical ? '0.04' : '0.02') + ')', (canonical ? 0.04 : 0.02) * intensity, COLOR.gold, 0.44 * intensity, canonical ? 1.0 : 0.5, makeMeta(plate, OBJ.C, src, 'decomposition-cell', 'lawful-decomposition', canonical ? 'central' : 'distributed'));
+    }
+  }
+}
+
+function drawRearrangementInstance(plate, center, progress, intensity, canonical){
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  const ring = model.ring(center);
+  if(ring.length !== 6) return;
+  const leftTri = [center, ring[0], ring[1]];
+  const rightTri = [center, ring[3], ring[4]];
+  if(progress > 0.05) render.polygon(leftTri, 'rgba(132,255,210,' + (canonical ? '0.05' : '0.025') + ')', (canonical ? 0.05 : 0.025) * intensity, COLOR.mint, 0.54 * intensity, canonical ? 1.2 : 0.6, makeMeta(plate, OBJ.C, src, 'source-piece-a', 'lawful-piece', canonical ? 'central' : 'distributed'));
+  if(progress > 0.25) render.polygon(rightTri, 'rgba(132,255,210,' + (canonical ? '0.05' : '0.025') + ')', (canonical ? 0.05 : 0.025) * intensity, COLOR.mint, 0.54 * intensity, canonical ? 1.2 : 0.6, makeMeta(plate, OBJ.C, src, 'source-piece-b', 'lawful-piece', canonical ? 'central' : 'distributed'));
+  if(progress > 0.55){
+    const shiftedA = [{ x:leftTri[0].x + 1.0, y:leftTri[0].y }, { x:leftTri[1].x + 1.0, y:leftTri[1].y }, { x:leftTri[2].x + 1.0, y:leftTri[2].y }];
+    const shiftedB = [{ x:rightTri[0].x - 1.0, y:rightTri[0].y }, { x:rightTri[1].x - 1.0, y:rightTri[1].y }, { x:rightTri[2].x - 1.0, y:rightTri[2].y }];
+    render.polygon(shiftedA, 'rgba(255,211,106,0.02)', 0.02 * intensity, COLOR.gold, 0.50 * intensity, canonical ? 1.0 : 0.5, makeMeta(plate, OBJ.T, SRC.TIMELINE, 'reassembled-piece-a', 'lawful-rearrangement', canonical ? 'central' : 'distributed'));
+    render.polygon(shiftedB, 'rgba(255,211,106,0.02)', 0.02 * intensity, COLOR.gold, 0.50 * intensity, canonical ? 1.0 : 0.5, makeMeta(plate, OBJ.T, SRC.TIMELINE, 'reassembled-piece-b', 'lawful-rearrangement', canonical ? 'central' : 'distributed'));
+  }
+}
+
+function drawAgreementInstance(plate, center, progress, intensity, canonical){
+  const src = canonical ? SRC.PROVENANCE : SRC.TIMELINE;
+  const ring = model.ring(center);
+  if(ring.length !== 6) return;
+  render.polygon(ring, 'rgba(132,255,210,' + (canonical ? '0.03' : '0.02') + ')', (canonical ? 0.03 : 0.02) * intensity, COLOR.circle, 0.42 * intensity, canonical ? 1.4 : 0.7, makeMeta(plate, OBJ.C, src, 'shared-surface', 'same-surface-area', canonical ? 'central' : 'distributed'));
+  if(progress > 0.12){
+    for(let i = 0; i < 3; i++) render.polygon([center, ring[i], ring[i + 1]], 'rgba(132,255,210,0.02)', 0.02 * intensity, COLOR.mint, 0.46 * intensity, canonical ? 1.0 : 0.5, makeMeta(plate, OBJ.C, src, 'decomposition-reading-a', 'lawful-decomposition-a', canonical ? 'central' : 'distributed'));
+  }
+  if(progress > 0.56){
+    for(let i = 3; i < 6; i++) render.polygon([center, ring[i], ring[(i + 1) % 6]], 'rgba(255,211,106,0.02)', 0.02 * intensity, COLOR.gold, 0.46 * intensity, canonical ? 1.0 : 0.5, makeMeta(plate, OBJ.C, src, 'decomposition-reading-b', 'lawful-decomposition-b', canonical ? 'central' : 'distributed'));
+  }
+  if(progress > 0.84) render.point(center, COLOR.gold, canonical ? 4.6 : 2.0, 0.90 * intensity, makeMeta(plate, OBJ.C, src, 'agreement-lock', 'decompositions-agree-in-total-area', canonical ? 'central' : 'distributed'));
+}
+
+function makePlate(spec){
+  const required = ['index','id','title','concept','duration','proofCondition','central','finale'];
+  for(const k of required) if(!(k in spec)) throw new Error('Plate missing required field ' + k);
+  return Object.freeze(spec);
+}
+
+function drawPlate(plate, t){
+  const ph = phaseT(t);
+  render.field(0.18 + 0.74 * ph.field + 0.18 * (ph.central + ph.pause + ph.finale));
+  if(plate.fieldDim) render.dimmer(plate.fieldDim);
+  plate.central({ t:ph.central, rawT:t, phases:ph, render, model, plate });
+  if(ph.pause > 0) plate.central({ t:1, rawT:t, phases:ph, render, model, plate });
+  if(ph.finale > 0){ render.dimmer(0.02 + 0.04 * ph.finale); plate.central({ t:1, rawT:t, phases:ph, render, model, plate }); plate.finale({ t:ph.finale, rawT:t, phases:ph, render, model, plate }); }
+}
+
+const plates = [
+  makePlate({
+    index:1, id:'P01', title:'Unit Circle Construction', concept:'fixed center, fixed unit radius, unit circle, boundary condition', duration:7.5, proofCondition:'all displayed points are exactly one unit from the active center', fieldDim:0.00,
+    central: ({t, plate}) => drawUnitCircleInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(unitCenters, O, t, (p,local,intensity)=> drawUnitCircleInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:2, id:'P02', title:'Equal-Radius Intersection Construction', concept:'equal-radius circles force an equilateral triangle', duration:8.0, proofCondition:'distributed instances use adjacent lawful centers with equal radius and lock the same equilateral relation', fieldDim:0.07,
+    central: ({t, plate}) => { render.circle(circleO, 1, COLOR.circle, 1.80, 0.70, null, makeMeta(plate, OBJ.C, SRC.PROVENANCE, 'established-base-circle', 'unit-circle-centered-at-fixed-center', 'central')); render.point(O, COLOR.rose, 5.0, 0.94, makeMeta(plate, OBJ.C, SRC.PROVENANCE, 'fixed-center-retained', 'named-lawful-point', 'central')); if(t > 0.08) render.point(A, COLOR.rose, 3.4 + 1.7 * smooth(span(t,0.08,0.20)), smooth(span(t,0.08,0.20)), makeMeta(plate, OBJ.C, SRC.PROVENANCE, 'neighbor-sweep-center', 'adjacent-lawful-station', 'central')); if(t > 0.18) render.circle(circleA, smooth(span(t,0.18,0.38)), COLOR.sweep, 1.45, 0.58, smooth(span(t,0.18,0.38)) < 1 ? null : '8 9', makeMeta(plate, smooth(span(t,0.18,0.38)) < 1 ? OBJ.T : OBJ.C, smooth(span(t,0.18,0.38)) < 1 ? SRC.TIMELINE : SRC.PROVENANCE, 'equal-radius-sweep-circle', 'unit-circle-centered-at-lawful-point', 'central')); if(t > 0.30) { render.point(B, COLOR.gold, 5.0 * smooth(span(t,0.30,0.42)), smooth(span(t,0.30,0.42)), makeMeta(plate, OBJ.C, SRC.PROVENANCE, 'upper-circle-intersection', 'lawful-unit-circle-intersection', 'central')); render.point(F, COLOR.gold, 3.2, 0.35 * smooth(span(t,0.30,0.42)), makeMeta(plate, OBJ.C, SRC.PROVENANCE, 'lower-circle-intersection-dim', 'lawful-unit-circle-intersection', 'central')); } if(t > 0.40) drawEquilateralInstance(plate, A, smooth(span(t,0.40,1.00)), 1, true); },
+    finale: ({t, plate}) => distributeCells(equilateralCells, O, t, (cell,local,intensity)=> drawEquilateralInstance(plate, cell.origin, local, intensity, false))
+  }),
+  makePlate({
+    index:3, id:'P03', title:'Sixfold Closure Construction', concept:'a fixed radius steps around its own circle in six equal placements', duration:7.8, proofCondition:'every distributed closure is a six-step unit traversal on a lawful local circle', fieldDim:0.03,
+    central: ({t, plate}) => drawHexClosureInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(hexCenters, O, t, (p,local,intensity)=> drawHexClosureInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:4, id:'P04', title:'Native Coordinate Construction', concept:'a point is reached by lawful steps along two triangular basis directions', duration:7.7, proofCondition:'each distributed target is reached by the same basis-step history in the lawful field', fieldDim:0.02,
+    central: ({t, plate}) => drawCoordinateInstance(plate, O, 2, 1, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(coordinateCenters, O, t, (p,local,intensity)=> drawCoordinateInstance(plate, p, 2, 1, local, intensity, false))
+  }),
+  makePlate({
+    index:5, id:'P05', title:'Triangular Distance Construction', concept:'triangular-field squared distance is a² + ab + b²', duration:7.6, proofCondition:'every distributed vector locks the same mixed-term distance relation in the triangular basis', fieldDim:0.03,
+    central: ({t, plate}) => drawCoordinateInstance(plate, O, 1, 1, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(coordinateCenters, O, t, (p,local,intensity)=> drawCoordinateInstance(plate, p, 1, 1, local, intensity, false))
+  }),
+  makePlate({
+    index:6, id:'P06', title:'First Distance Classes Construction', concept:'the first native distance classes are 1, √3, and 2', duration:7.0, proofCondition:'all distributed segments remain lawful representatives of the same first three distance classes', fieldDim:0.02,
+    central: ({t, plate}) => drawDistanceClassInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(coordinateCenters, O, t, (p,local,intensity)=> drawDistanceClassInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:7, id:'P07', title:'Twenty Boundary Triangles Construction', concept:'the first circle contains a finite catalogue of lawful boundary triangles', duration:7.7, proofCondition:'each distributed catalogue is derived from boundary triples on a lawful six-station circle', fieldDim:0.05,
+    central: ({t, plate}) => drawTriangleCatalogueInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(hexCenters, O, t, (p,local,intensity)=> drawTriangleCatalogueInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:8, id:'P08', title:'Three Triangle Families Construction', concept:'boundary triangles resolve into three identity families', duration:7.5, proofCondition:'every distributed reading preserves the same three lawful family conditions', fieldDim:0.05,
+    central: ({t, plate}) => drawTriangleFamilyInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(hexCenters, O, t, (p,local,intensity)=> drawTriangleFamilyInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:9, id:'P09', title:'30-60-90 Side Pattern Construction', concept:'one diameter triangle locks the side pattern 1 : √3 : 2', duration:7.8, proofCondition:'every distributed instance is a lawful diameter-containing 30-60-90 triangle with the same side identity', fieldDim:0.04,
+    central: ({t, plate}) => drawRightTriangleInstance(plate, A, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(rightTriangleOrigins, O, t, (p,local,intensity)=> drawRightTriangleInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:10, id:'P10', title:'Scaling and Similarity Construction', concept:'similar figures scale while preserving corresponding side ratios', duration:7.4, proofCondition:'every distributed family preserves the same angle pattern and corresponding side ratios', fieldDim:0.04,
+    central: ({t, plate}) => drawScaledSimilarityInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(coordinateCenters, O, t, (p,local,intensity)=> drawScaledSimilarityInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:11, id:'P11', title:'Trigonometric Ratio Construction', concept:'stable named ratios arise from the same right-triangle relation', duration:7.6, proofCondition:'all distributed instances read the same opposite-adjacent-hypotenuse structure from a lawful right triangle', fieldDim:0.04,
+    central: ({t, plate}) => drawTrigRatioInstance(plate, A, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(rightTriangleOrigins, O, t, (p,local,intensity)=> drawTrigRatioInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:12, id:'P12', title:'Area Cell Construction', concept:'the field provides a native equilateral area unit', duration:7.0, proofCondition:'every distributed filled cell is the same lawful equilateral area unit', fieldDim:0.02,
+    central: ({t, plate}) => drawAreaCellInstance(plate, model.cellAt(-1,0,'up'), t, 1, true),
+    finale: ({t, plate}) => distributeCells(model.upCellsInView().filter(c => !(c.origin.q === -1 && c.origin.r === 0)), O, t, (cell,local,intensity)=> drawAreaCellInstance(plate, cell, local, intensity, false))
+  }),
+  makePlate({
+    index:13, id:'P13', title:'Area Compression Construction', concept:'area formulas compress lawful cell-counting', duration:7.3, proofCondition:'every distributed exhibit preserves the same counted-cell to compressed-area relation', fieldDim:0.03,
+    central: ({t, plate}) => drawAreaCompressionInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(hexCenters, O, t, (p,local,intensity)=> drawAreaCompressionInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:14, id:'P14', title:'Transformation-Invariant Construction', concept:'permitted transformations preserve specific truths', duration:7.7, proofCondition:'every distributed transformed figure preserves the same named invariant under lawful change', fieldDim:0.04,
+    central: ({t, plate}) => drawTransformationInvariantInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(coordinateCenters, O, t, (p,local,intensity)=> drawTransformationInvariantInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:15, id:'P15', title:'Lawful Decomposition Construction', concept:'a lawful body separates into lawful parts', duration:7.5, proofCondition:'every distributed body decomposes into the same lawful part structure', fieldDim:0.04,
+    central: ({t, plate}) => drawDecompositionInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(bodyCenters, O, t, (p,local,intensity)=> drawDecompositionInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:16, id:'P16', title:'Lawful Rearrangement Construction', concept:'lawful pieces reassemble without stretching or duplication', duration:7.5, proofCondition:'every distributed rearrangement preserves the same piece set and area through lawful reassembly', fieldDim:0.04,
+    central: ({t, plate}) => drawRearrangementInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(bodyCenters, O, t, (p,local,intensity)=> drawRearrangementInstance(plate, p, local, intensity, false))
+  }),
+  makePlate({
+    index:17, id:'P17', title:'Agreement of Decompositions Construction', concept:'different lawful decompositions of the same surface agree in total area', duration:7.8, proofCondition:'every distributed surface exhibits two lawful readings that agree in the same total measure', fieldDim:0.04,
+    central: ({t, plate}) => drawAgreementInstance(plate, O, t, 1, true),
+    finale: ({t, plate}) => distributeAcrossField(bodyCenters, O, t, (p,local,intensity)=> drawAgreementInstance(plate, p, local, intensity, false))
+  })
+];
+
+const timeline = new TimelineLayer(plates);
+function draw(sample){ render.clear(); drawPlate(sample.plate, sample.t); }
+function loop(now){ draw(timeline.sample(now)); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+
+window.TheoremZero17 = Object.freeze({
+  plates: plates.map(p => ({ index:p.index, id:p.id, title:p.title, concept:p.concept, proofCondition:p.proofCondition, duration:p.duration })),
+  provenance: () => provenance.all(),
+  holdPlate: (plateIndex, t) => { timeline.hold(plateIndex, t); draw(timeline.sample(performance.now())); },
+  resume: () => timeline.resume(),
+  exportFrame: (plateIndex, t) => { timeline.hold(plateIndex, t); draw(timeline.sample(performance.now())); const plate = plates[plateIndex]; return render.exportCurrent('theorem_zero_' + plate.id.toLowerCase() + '_t_' + t.toFixed(2) + '.svg'); },
+  exportPlateFinalFrame: (plateIndex) => { timeline.hold(plateIndex, 1); draw(timeline.sample(performance.now())); const plate = plates[plateIndex]; return render.exportCurrent('theorem_zero_' + plate.id.toLowerCase() + '_final.svg'); },
+  exportCurrentPlateFinalFrame: () => { const sample = timeline.sample(performance.now()); timeline.hold(sample.plateIndex, 1); draw(timeline.sample(performance.now())); return render.exportCurrent('theorem_zero_' + sample.plate.id.toLowerCase() + '_final.svg'); },
+  exportAllFinalFrames: () => { const out = []; for(let i = 0; i < plates.length; i++) out.push(window.TheoremZero17.exportPlateFinalFrame(i)); return out; }
+});
+
+document.addEventListener('keydown', (event) => {
+  if(event.key === 'f' || event.key === 'F') window.TheoremZero17.exportCurrentPlateFinalFrame();
+  if(event.key === 'ArrowRight') { const s = timeline.sample(performance.now()); timeline.hold(Math.min(plates.length - 1, s.plateIndex + 1), 1); draw(timeline.sample(performance.now())); }
+  if(event.key === 'ArrowLeft') { const s = timeline.sample(performance.now()); timeline.hold(Math.max(0, s.plateIndex - 1), 1); draw(timeline.sample(performance.now())); }
+  if(event.key === ' ') window.TheoremZero17.resume();
+});
+</script>
+</body>
+</html>
